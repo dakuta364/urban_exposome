@@ -435,7 +435,7 @@ body {
         z-index: 1000;
     }
 
-    
+
     #sidebar.hidden {
         transform: translateY(100%);
     }
@@ -471,7 +471,7 @@ body {
     border-radius: var(--radius-sm);
     padding: 14px 16px;
     margin-bottom: -4px;
-    
+
 }
 
 .norm-card.hidden {
@@ -503,4 +503,23 @@ body {
     color: var(--text-primary);
     line-height: 1.4;
     font-weight: 400;
+}
+
+.layer-brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.brand-logo {
+    width: 36px;
+    height: 36px;
+    object-fit: contain;
+    border-radius: var(--radius-sm);
+    box-shadow: 0 0 10px rgba(108, 99, 255, 0.3);
+}
+
+.brand-text {
+    display: flex;
+    flex-direction: column;
 }
