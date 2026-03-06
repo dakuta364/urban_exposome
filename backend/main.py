@@ -45,7 +45,16 @@ def get_location_info(lat, lon):
     
     try:
         overpass_url = "http://overpass-api.de/api/interpreter"
-        query = f""
+        query = f"""
+        [out:json][timeout:3];
+        (
+          way(around:50, {lat}, {lon})["leisure"];
+          way(around:50, {lat}, {lon})["amenity"];
+          way(around:50, {lat}, {lon})["building"];
+          way(around:50, {lat}, {lon})["tourism"];
+        );
+        out tags;
+        """
         op_res = requests.post(overpass_url, data={'data': query}, timeout=3)
         if op_res.status_code == 200:
             elements = op_res.json().get("elements", [])
@@ -156,7 +165,17 @@ def analyze_single_factor(lat: float, lon: float, map_type: str = Query(..., reg
             "norm": norm_txt
         }
     
-    prompt = f""
+    prompt = f"""
+    Выступай в роли академического врача-эпидемиолога.
+    Локация: {loc_info['name']}. Фактор: {layer_info['name']}. Значение: {layer_info['val']} {layer_info['unit']}.
+    Норматив: {layer_info['norm']}.
+    
+    Оцени патофизиологическое влияние ИМЕННО ЭТОГО значения на здоровье в этой точке. 
+    Текст должен быть сухим, научным, вариабельным (зависит от цифры). Без шаблонов.
+    Если значение в норме - объясни, почему это хорошо для физиологии. 
+    Если превышает - опиши специфические молекулярные/системные риски.
+    ЗАПРЕЩЕНО: бытовые советы, списки. ДО 70 слов.
+    """
     
     doctor_note = generate_ai_assessment(prompt)
 
