@@ -122,7 +122,7 @@ async function analyzeLocation(lat, lon) {
     document.getElementById('complex-result-block').classList.add('hidden');
 
     try {
-        const response = await fetch(`http://127.0.0.1:8000/api/analyze-single?lat=${lat}&lon=${lon}&map_type=${currentLayerId}`);
+        const response = await fetch(`https://urban-exposome.onrender.com/api/analyze-single?lat=${lat}&lon=${lon}&map_type=${currentLayerId}`);
         const data = await response.json();
 
         if (data.error) {
@@ -177,7 +177,7 @@ document.getElementById('btn-complex').addEventListener('click', async () => {
     }
 
     try {
-        const response = await fetch(`http://127.0.0.1:8000/api/analyze-complex?lat=${currentCoords.lat}&lon=${currentCoords.lon}`);
+        const response = await fetch(`https://urban-exposome.onrender.com/api/analyze-complex?lat=${currentCoords.lat}&lon=${currentCoords.lon}`);
         const data = await response.json();
 
         document.getElementById('complex-loading').classList.add('hidden');
