@@ -65,12 +65,19 @@
                             <path
                                 d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
                         </svg>
-                        <h3>Медицинское заключение</h3>
+                        <h3>Гигиеническая интерпретация</h3>
                     </div>
                     <div id="ai-loading" class="typing-indicator hidden">
                         <span></span><span></span><span></span>
                     </div>
                     <p id="ai-text" class="ai-text">—</p>
+                    <button id="btn-single-advanced" class="btn-secondary hidden" type="button">
+                        Расширенная интерпретация (LLM)
+                    </button>
+                    <div id="ai-advanced-loading" class="typing-indicator hidden">
+                        <span></span><span></span><span></span>
+                    </div>
+                    <p id="ai-advanced-text" class="ai-text hidden"></p>
                 </div>
 
                 <button id="btn-complex" class="btn-primary">
@@ -95,11 +102,21 @@
                         <span></span><span></span><span></span>
                     </div>
                     <p id="complex-text" class="ai-text"></p>
+                    <div id="complex-advanced-wrap" class="hidden">
+                        <button id="btn-complex-advanced" class="btn-secondary" type="button">
+                            Расширенная интерпретация (LLM)
+                        </button>
+                        <div id="complex-advanced-loading" class="typing-indicator hidden">
+                            <span></span><span></span><span></span>
+                        </div>
+                        <p id="complex-advanced-text" class="ai-text hidden"></p>
+                    </div>
                 </div>
             </div>
         </aside>
 
         <main id="map-wrapper">
+            <div id="backend-status" class="backend-status hidden status-info"></div>
             <div class="layer-controls">
                 <div class="layer-brand">
                     <img src="logo.png" alt="Urban Exposome Logo" class="brand-logo">

@@ -1,6 +1,6 @@
-fastapi
-uvicorn
-rasterio
-groq
-requests
-python-dotenv
+fastapi==0.115.12
+uvicorn[standard]==0.34.2
+rasterio==1.4.3
+groq==0.18.0
+requests==2.32.3
+python-dotenv==1.1.0

@@ -1,3 +1,10 @@
+const BACKEND_BASE_URL =
+    window.BACKEND_BASE_URL ||
+    ((window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+        ? window.location.protocol + '//' + window.location.hostname + ':8000'
+        : 'https://urban-exposome.onrender.com');
+const BACKEND_WARMUP_TEXT = 'Сервер анализа запускается, это может занять до 60 секунд';
+
 const map = L.map('map', { zoomControl: false }).setView([45.2, 34.3], 8);
 map.attributionControl.setPrefix('<a href="https://leafletjs.com">Leaflet</a>');
 
@@ -21,33 +28,31 @@ const overlays = {
     noise: L.imageOverlay('overlays/noise.png', imageBounds, { opacity: 0.75 })
 };
 
-let currentLayerId = 'light';
-overlays[currentLayerId].addTo(map);
-
-document.querySelectorAll('.layer-btn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-        document.querySelectorAll('.layer-btn').forEach(b => b.classList.remove('active'));
-        const target = e.currentTarget;
-        target.classList.add('active');
-
-        const newLayerId = target.getAttribute('data-layer');
-        if (currentLayerId !== newLayerId) {
-            map.removeLayer(overlays[currentLayerId]);
-            overlays[newLayerId].addTo(map);
-            currentLayerId = newLayerId;
-
-            if (currentMarker) {
-                const latlng = currentMarker.getLatLng();
-                analyzeLocation(latlng.lat, latlng.lng);
-            }
-        }
-    });
-});
-
+const backendStatusEl = document.getElementById('backend-status');
 const sidebar = document.getElementById('sidebar');
 const closeBtn = document.getElementById('close-btn');
+
+const btnSingleAdvanced = document.getElementById('btn-single-advanced');
+const aiAdvancedLoadingEl = document.getElementById('ai-advanced-loading');
+const aiAdvancedTextEl = document.getElementById('ai-advanced-text');
+
+const btnComplex = document.getElementById('btn-complex');
+const complexBlock = document.getElementById('complex-result-block');
+const complexTextEl = document.getElementById('complex-text');
+const complexLoadingEl = document.getElementById('complex-loading');
+const complexAdvancedWrap = document.getElementById('complex-advanced-wrap');
+const btnComplexAdvanced = document.getElementById('btn-complex-advanced');
+const complexAdvancedLoadingEl = document.getElementById('complex-advanced-loading');
+const complexAdvancedTextEl = document.getElementById('complex-advanced-text');
+
+let currentLayerId = 'light';
 let currentMarker = null;
 let currentCoords = null;
+let backendReady = false;
+let llmAvailable = false;
+let healthCheckInFlight = null;
+
+overlays[currentLayerId].addTo(map);
 
 const sciIcon = L.divIcon({
     className: 'sci-marker',
@@ -55,6 +60,117 @@ const sciIcon = L.divIcon({
     iconSize: [20, 20],
     iconAnchor: [10, 10]
 });
+
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function setBackendStatus(text, type = 'info', sticky = true) {
+    backendStatusEl.innerText = text;
+    backendStatusEl.classList.remove('hidden', 'status-info', 'status-warning', 'status-error');
+    backendStatusEl.classList.add(`status-${type}`);
+    backendStatusEl.dataset.sticky = sticky ? '1' : '0';
+}
+
+function hideBackendStatus() {
+    if (backendStatusEl.dataset.sticky === '1') return;
+    backendStatusEl.classList.add('hidden');
+}
+
+async function fetchWithTimeout(url, timeoutMs = 7000) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+        const response = await fetch(url, { signal: controller.signal });
+        return response;
+    } finally {
+        clearTimeout(timeout);
+    }
+}
+
+async function checkBackendHealth({ timeoutMs = 7000, silent = false } = {}) {
+    if (healthCheckInFlight) {
+        return healthCheckInFlight;
+    }
+
+    healthCheckInFlight = (async () => {
+        try {
+            const response = await fetchWithTimeout(`${BACKEND_BASE_URL}/healthz`, timeoutMs);
+            if (!response.ok) {
+                backendReady = false;
+                if (!silent) {
+                    setBackendStatus(BACKEND_WARMUP_TEXT, 'warning', true);
+                }
+                return false;
+            }
+
+            const status = await response.json();
+            backendReady = Boolean(status.ok);
+            llmAvailable = Boolean(status.llm_available);
+
+            if (backendReady) {
+                if (!silent) {
+                    setBackendStatus('Сервер анализа готов.', 'info', false);
+                    setTimeout(hideBackendStatus, 1800);
+                }
+                return true;
+            }
+
+            if (!silent) {
+                setBackendStatus(BACKEND_WARMUP_TEXT, 'warning', true);
+            }
+            return false;
+        } catch (_) {
+            backendReady = false;
+            if (!silent) {
+                setBackendStatus(BACKEND_WARMUP_TEXT, 'warning', true);
+            }
+            return false;
+        } finally {
+            healthCheckInFlight = null;
+        }
+    })();
+
+    return healthCheckInFlight;
+}
+
+async function ensureBackendReady(maxWaitMs = 65000) {
+    if (backendReady) {
+        return true;
+    }
+
+    setBackendStatus(BACKEND_WARMUP_TEXT, 'warning', true);
+
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < maxWaitMs) {
+        const ok = await checkBackendHealth({ timeoutMs: 7000, silent: true });
+        if (ok) {
+            setBackendStatus('Сервер анализа готов.', 'info', false);
+            setTimeout(hideBackendStatus, 1800);
+            return true;
+        }
+        await sleep(4000);
+    }
+
+    setBackendStatus('Сервер анализа пока недоступен. Проверьте подключение и повторите попытку.', 'error', true);
+    return false;
+}
+
+async function apiGet(path, params = {}) {
+    const url = new URL(`${BACKEND_BASE_URL}${path}`);
+    Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
+
+    const response = await fetch(url.toString());
+    const data = await response.json();
+
+    if (!response.ok) {
+        const message = data.error || `HTTP ${response.status}`;
+        throw new Error(message);
+    }
+
+    return data;
+}
 
 function openSidebar() {
     sidebar.classList.remove('hidden');
@@ -76,13 +192,27 @@ function closeSidebar() {
     setTimeout(() => map.invalidateSize(), 300);
 }
 
+function resetSingleAdvancedUI() {
+    btnSingleAdvanced.classList.add('hidden');
+    aiAdvancedLoadingEl.classList.add('hidden');
+    aiAdvancedTextEl.classList.add('hidden');
+    aiAdvancedTextEl.innerText = '';
+}
+
+function resetComplexAdvancedUI() {
+    complexAdvancedWrap.classList.add('hidden');
+    complexAdvancedLoadingEl.classList.add('hidden');
+    complexAdvancedTextEl.classList.add('hidden');
+    complexAdvancedTextEl.innerText = '';
+}
+
 closeBtn.addEventListener('click', closeSidebar);
 
 let startY = 0;
 sidebar.addEventListener('touchstart', e => { startY = e.touches[0].clientY; });
 sidebar.addEventListener('touchend', e => {
     if (window.innerWidth > 768) return;
-    let endY = e.changedTouches[0].clientY;
+    const endY = e.changedTouches[0].clientY;
 
     if (startY - endY > 50) {
         sidebar.classList.replace('half-open', 'full-open');
@@ -107,6 +237,26 @@ map.on('click', function (e) {
     analyzeLocation(lat, lon);
 });
 
+document.querySelectorAll('.layer-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+        document.querySelectorAll('.layer-btn').forEach(b => b.classList.remove('active'));
+        const target = e.currentTarget;
+        target.classList.add('active');
+
+        const newLayerId = target.getAttribute('data-layer');
+        if (currentLayerId !== newLayerId) {
+            map.removeLayer(overlays[currentLayerId]);
+            overlays[newLayerId].addTo(map);
+            currentLayerId = newLayerId;
+
+            if (currentMarker) {
+                const latlng = currentMarker.getLatLng();
+                analyzeLocation(latlng.lat, latlng.lng);
+            }
+        }
+    });
+});
+
 async function analyzeLocation(lat, lon) {
     document.getElementById('coords').innerText = `${lat.toFixed(4)}° с.ш., ${lon.toFixed(4)}° в.д.`;
 
@@ -118,21 +268,45 @@ async function analyzeLocation(lat, lon) {
     document.getElementById('value-loading').classList.remove('hidden');
     document.getElementById('ai-loading').classList.remove('hidden');
 
-    document.getElementById('btn-complex').classList.remove('hidden');
-    document.getElementById('complex-result-block').classList.add('hidden');
+    btnComplex.classList.remove('hidden');
+    complexBlock.classList.add('hidden');
+    resetSingleAdvancedUI();
+    resetComplexAdvancedUI();
+
+    const ready = await ensureBackendReady();
+    if (!ready) {
+        document.getElementById('location-name').innerText = 'Сервер недоступен';
+        document.getElementById('value-loading').classList.add('hidden');
+        document.getElementById('factor-value').classList.remove('hidden');
+        document.getElementById('factor-value').innerText = '—';
+        document.getElementById('factor-unit').innerText = '';
+
+        document.getElementById('ai-loading').classList.add('hidden');
+        const aiTextEl = document.getElementById('ai-text');
+        aiTextEl.innerText = 'Не удалось дождаться ответа backend. Попробуйте повторить через несколько секунд.';
+        aiTextEl.classList.remove('hidden');
+        return;
+    }
 
     try {
-        const response = await fetch(`https://urban-exposome.onrender.com/api/analyze-single?lat=${lat}&lon=${lon}&map_type=${currentLayerId}`);
-        const data = await response.json();
+        const data = await apiGet('/api/analyze-single', {
+            lat,
+            lon,
+            map_type: currentLayerId
+        });
 
         if (data.error) {
-            document.getElementById('location-name').innerText = "Вне зоны покрытия";
+            document.getElementById('location-name').innerText = 'Вне зоны покрытия';
             document.getElementById('value-loading').classList.add('hidden');
             document.getElementById('factor-value').classList.remove('hidden');
-            document.getElementById('factor-value').innerText = "—";
+            document.getElementById('factor-value').innerText = '—';
             document.getElementById('ai-loading').classList.add('hidden');
+            document.getElementById('ai-text').innerText = data.error;
+            document.getElementById('ai-text').classList.remove('hidden');
             return;
         }
+
+        llmAvailable = Boolean(data.llm_available);
 
         document.getElementById('location-name').innerText = data.location_name;
         document.getElementById('factor-name').innerText = data.factor;
@@ -151,6 +325,9 @@ async function analyzeLocation(lat, lon) {
         aiTextEl.innerText = data.analysis;
         aiTextEl.classList.remove('hidden');
 
+        if (llmAvailable) {
+            btnSingleAdvanced.classList.remove('hidden');
+        }
     } catch (error) {
         console.error(error);
         document.getElementById('value-loading').classList.add('hidden');
@@ -162,33 +339,91 @@ async function analyzeLocation(lat, lon) {
     }
 }
 
-document.getElementById('btn-complex').addEventListener('click', async () => {
+btnSingleAdvanced.addEventListener('click', async () => {
+    if (!currentCoords || !llmAvailable) return;
+
+    aiAdvancedTextEl.classList.add('hidden');
+    aiAdvancedLoadingEl.classList.remove('hidden');
+
+    try {
+        const data = await apiGet('/api/analyze-single-advanced', {
+            lat: currentCoords.lat,
+            lon: currentCoords.lon,
+            map_type: currentLayerId
+        });
+
+        aiAdvancedLoadingEl.classList.add('hidden');
+        aiAdvancedTextEl.innerText = data.analysis || data.advanced_error || 'Расширенная интерпретация временно недоступна.';
+        aiAdvancedTextEl.classList.remove('hidden');
+    } catch (error) {
+        console.error(error);
+        aiAdvancedLoadingEl.classList.add('hidden');
+        aiAdvancedTextEl.innerText = 'Ошибка получения расширенной интерпретации.';
+        aiAdvancedTextEl.classList.remove('hidden');
+    }
+});
+
+btnComplex.addEventListener('click', async () => {
     if (!currentCoords) return;
 
-    document.getElementById('btn-complex').classList.add('hidden');
-    const complexBlock = document.getElementById('complex-result-block');
+    btnComplex.classList.add('hidden');
     complexBlock.classList.remove('hidden');
 
-    document.getElementById('complex-text').classList.add('hidden');
-    document.getElementById('complex-loading').classList.remove('hidden');
+    complexTextEl.classList.add('hidden');
+    complexLoadingEl.classList.remove('hidden');
+    resetComplexAdvancedUI();
 
     if (window.innerWidth <= 768) {
         sidebar.classList.replace('half-open', 'full-open');
     }
 
     try {
-        const response = await fetch(`https://urban-exposome.onrender.com/api/analyze-complex?lat=${currentCoords.lat}&lon=${currentCoords.lon}`);
-        const data = await response.json();
+        const data = await apiGet('/api/analyze-complex', {
+            lat: currentCoords.lat,
+            lon: currentCoords.lon
+        });
 
-        document.getElementById('complex-loading').classList.add('hidden');
-        const complexTextEl = document.getElementById('complex-text');
-        complexTextEl.innerText = data.conclusion;
+        complexLoadingEl.classList.add('hidden');
+        complexTextEl.innerText = data.conclusion || data.error || 'Ошибка комплексной оценки.';
         complexTextEl.classList.remove('hidden');
 
+        if (data.llm_available) {
+            complexAdvancedWrap.classList.remove('hidden');
+        }
     } catch (error) {
         console.error(error);
-        document.getElementById('complex-loading').classList.add('hidden');
-        document.getElementById('complex-text').innerText = 'Ошибка генерации комплексной оценки.';
-        document.getElementById('complex-text').classList.remove('hidden');
+        complexLoadingEl.classList.add('hidden');
+        complexTextEl.innerText = 'Ошибка генерации комплексной оценки.';
+        complexTextEl.classList.remove('hidden');
     }
 });
+
+btnComplexAdvanced.addEventListener('click', async () => {
+    if (!currentCoords || !llmAvailable) return;
+
+    complexAdvancedTextEl.classList.add('hidden');
+    complexAdvancedLoadingEl.classList.remove('hidden');
+
+    try {
+        const data = await apiGet('/api/analyze-complex-advanced', {
+            lat: currentCoords.lat,
+            lon: currentCoords.lon
+        });
+
+        complexAdvancedLoadingEl.classList.add('hidden');
+        complexAdvancedTextEl.innerText = data.conclusion || data.advanced_error || 'Расширенная интерпретация временно недоступна.';
+        complexAdvancedTextEl.classList.remove('hidden');
+    } catch (error) {
+        console.error(error);
+        complexAdvancedLoadingEl.classList.add('hidden');
+        complexAdvancedTextEl.innerText = 'Ошибка получения расширенной интерпретации.';
+        complexAdvancedTextEl.classList.remove('hidden');
+    }
+});
+
+(async () => {
+    const ready = await checkBackendHealth({ timeoutMs: 7000, silent: false });
+    if (!ready) {
+        ensureBackendReady(65000);
+    }
+})();
